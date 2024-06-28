@@ -1,0 +1,15 @@
+.venv
+__pycache__
+
+.secret
+
+.tmp-earthly-out
+
+_ros2rpm_cache
+logs
+RPMS
+SOURCES
+SPECS
+SRPMS
+stage0
+thirdparty

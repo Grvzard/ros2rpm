@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ros2rpm"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.9"
+license = "BSD-3-Clause"
+keywords = []
+authors = [{ name = "Grvzard", email = "grvzard@outlook.com" }]
+classifiers = [
+  "License :: OSI Approved :: BSD License",
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "attrs",
+  "catkin_pkg",
+  "click",
+  "httpx[http2]",
+  "Jinja2",
+  "networkx",
+  "PyYAML",
+  "rosdep-oe @ git+https://github.com/Grvzard/rosdep-oe@dev",
+]
+
+[project.scripts]
+ros2rpm = "ros2rpm.cli:cli"
+
+[project.urls]
+Source = "https://github.com/Grvzard/ros2rpm"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+path = "ros2rpm/__init__.py"
+
+[tool.ruff]
+line-length = 98
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
