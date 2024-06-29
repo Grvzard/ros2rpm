@@ -156,7 +156,7 @@ build-stage0-repo:
     END
     RUN createrepo --update .
 
-    SAVE ARTIFACT . AS LOCAL stage0/
+    SAVE ARTIFACT ./* AS LOCAL stage0/
 
 
 rpmbuild-thirdparty:
