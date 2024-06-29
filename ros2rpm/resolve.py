@@ -56,7 +56,7 @@ class PkgResolver:
         for dep in deps:
             # in most cases the length should be 1
             for resolved_name in self.resolve_rosdep(dep.name):
-                version_deps = [k for k in self.VERSIONS.keys() if hasattr(dep, k)]
+                version_deps = [k for k in self.VERSIONS.keys() if getattr(dep, k) is not None]
                 if not version_deps:
                     res.append(resolved_name)
                 else:
