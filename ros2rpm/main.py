@@ -1,6 +1,5 @@
 import logging
 import subprocess
-from collections import defaultdict
 from pathlib import Path
 from typing import Optional, Union
 
@@ -55,7 +54,6 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
 
     http_client = httpx.Client(timeout=15.0, http2=True, http1=False)
     pkg_infos = {}
-    pkg_names = set()
     skipped_list = []
     pkg_run_deps: dict[str, list] = {}
     pkg_build_deps: dict[str, list] = {}
@@ -82,8 +80,7 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
         raw_host = src_host.replace("github.com", "raw.githubusercontent.com").rstrip(".git")
         version = info["release"]["version"]
         for pkg_name in pkgs:
-            assert pkg_name not in pkg_names
-            pkg_names.add(pkg_name)
+            assert pkg_name not in pkg_infos.keys()
             src_path = f"release/{rosdistro}/{pkg_name}/{version}"
             xml_path = f"{src_path}/package.xml"
 
@@ -128,21 +125,27 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
             pkg_infos[pkg_name] = {
                 "git": src_host,
                 "branch": src_path,
-                "rundeps": pkg_run_deps[pkg_name],
+                "rundeps": None,  # fill later
             }
             logger.info(f"resolved: {pkg_name}")
 
     dep_graph_data = []
+    pkg_build_deps = {
+        pkg_name: [dep for dep in deps if dep in pkg_infos.keys()]
+        for pkg_name, deps in pkg_build_deps.items()
+    }
+    pkg_run_deps = {
+        pkg_name: [dep for dep in deps if dep in pkg_infos.keys()]
+        for pkg_name, deps in pkg_build_deps.items()
+    }
     for pkg_name, build_deps in pkg_build_deps.items():
         for builddep_name in build_deps:
-            if builddep_name not in pkg_names:
-                continue
             dep_graph_data.append((builddep_name, pkg_name))
             dep_graph_data.extend(
-                (rundep_name, pkg_name)
-                for rundep_name in pkg_run_deps[builddep_name]
-                if rundep_name in pkg_names
+                (rundep_name, pkg_name) for rundep_name in pkg_run_deps[builddep_name]
             )
+    for pkg_name, run_deps in pkg_run_deps.items():
+        pkg_infos[pkg_name]["rundeps"] = run_deps
     g = {"pkgs": pkg_infos, "graph": list(set(dep_graph_data))}
     (cache_dpath / f"{rosdistro}-skipped.log").write_text(yaml.safe_dump(skipped_list))
     Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).write_text(yaml.safe_dump(g))
