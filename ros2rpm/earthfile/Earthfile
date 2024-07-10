@@ -15,7 +15,7 @@ self-cmdline:
     CACHE --persist /root/.ros/
     RUN echo "Cache bust: 0" && rosdep update
 
-    RUN pip install "ros2rpm @ git+https://github.com/Grvzard/ros2rpm@main"
+    RUN pip install "ros2rpm @ git+https://github.com/Grvzard/ros2rpm@dev"
 
 
 clone-pkg:
