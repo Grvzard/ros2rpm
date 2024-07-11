@@ -129,6 +129,10 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
             }
             logger.info(f"resolved: {pkg_name}")
 
+    for pkg_name, builddeps in pkg_build_deps.items():
+        pkg_infos[pkg_name]["builddeps"] = builddeps.copy()
+    for pkg_name, run_deps in pkg_run_deps.items():
+        pkg_infos[pkg_name]["rundeps"] = run_deps.copy()
     dep_graph_data = []
     pkg_build_deps = {
         pkg_name: [dep for dep in deps if dep in pkg_infos.keys()]
@@ -136,7 +140,7 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
     }
     pkg_run_deps = {
         pkg_name: [dep for dep in deps if dep in pkg_infos.keys()]
-        for pkg_name, deps in pkg_build_deps.items()
+        for pkg_name, deps in pkg_run_deps.items()
     }
     for pkg_name, build_deps in pkg_build_deps.items():
         for builddep_name in build_deps:
@@ -144,8 +148,6 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
             dep_graph_data.extend(
                 (rundep_name, pkg_name) for rundep_name in pkg_run_deps[builddep_name]
             )
-    for pkg_name, run_deps in pkg_run_deps.items():
-        pkg_infos[pkg_name]["rundeps"] = run_deps
     g = {"pkgs": pkg_infos, "graph": list(set(dep_graph_data))}
     (cache_dpath / f"{rosdistro}-skipped.log").write_text(yaml.safe_dump(skipped_list))
     Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).write_text(yaml.safe_dump(g))
