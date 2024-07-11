@@ -120,7 +120,7 @@ baseurl=file:///tmp/local-repo
 enabled=1
 gpgcheck=0" > /etc/yum.repos.d/local.repo
     COPY RPMS/ /tmp/local-repo/
-    RUN --no-cache createrepo --update /tmp/local-repo/
+    RUN createrepo --update /tmp/local-repo/
 
     ARG --required url
     ARG --required package
@@ -136,9 +136,9 @@ gpgcheck=0" > /etc/yum.repos.d/local.repo
     COPY SPECS/$ros_pkgname.spec SPECS/
     COPY SOURCES/$arcname_main.tar.gz SOURCES/
 
-    RUN --no-cache rpmlint SPECS/*
-    RUN --no-cache dnf builddep -y SPECS/$ros_pkgname.spec
-    RUN --no-cache rpmbuild -ba SPECS/$ros_pkgname.spec
+    RUN rpmlint SPECS/*
+    RUN dnf builddep -y SPECS/$ros_pkgname.spec
+    RUN rpmbuild -ba SPECS/$ros_pkgname.spec
 
     FOR dir IN $(ls -d RPMS/*/)
         SAVE ARTIFACT $dir/* AS LOCAL $dir/
@@ -159,18 +159,19 @@ build-stage0-repo:
     SAVE ARTIFACT ./* AS LOCAL stage0/
 
 
-rpmbuild-thirdparty:
+rpmbuild:
     FROM +oe-rpmbuild
     WORKDIR /root/rpmbuild
 
-    COPY thirdparty/SPECS/ SPECS/
-    COPY thirdparty/SOURCES/ SOURCES/
-    RUN --no-cache rpmlint SPECS/*
+    ARG builddir = .
+    COPY $builddir/SPECS/ SPECS/
+    COPY $builddir/SOURCES/ SOURCES/
+    RUN rpmlint SPECS/*
 
     FOR file IN $(ls -d SPECS/*)
-        RUN --no-cache dnf builddep -y $file
-        RUN --no-cache rpmbuild -ba $file
+        RUN dnf builddep -y $file
+        RUN rpmbuild -ba $file
     END
     RUN createrepo --update RPMS/
 
-    SAVE ARTIFACT RPMS/* AS LOCAL thirdparty/RPMS/
+    SAVE ARTIFACT RPMS/* AS LOCAL $builddir/RPMS/

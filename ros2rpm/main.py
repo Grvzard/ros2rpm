@@ -154,7 +154,6 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optiona
 
 
 def _earthly_build(target: str, args: list[str]) -> tuple[bool, str]:
-    assert target in ("rpm-build", "gen", "build-stage0-repo")
     p = subprocess.run(["earthly", f"+{target}", *args], capture_output=True)
     return p.returncode == 0, p.stderr.decode()
 
