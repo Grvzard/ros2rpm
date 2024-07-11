@@ -69,11 +69,12 @@ def cli_gen(rosdistro: Rosdistro, retry: bool):
 
 @cli.command("rpmbuild")
 @click.option("--rosdistro", required=True, type=click.Choice(rosdistros))
+@click.option("--arch", required=True, type=click.Choice(["arm64", "amd64", "riscv64"]))
 @click.option("--stage0", is_flag=True, default=False)
 @click.option("--retry", is_flag=True, default=False)
 @with_earthly
-def cli_rpmbuild(rosdistro: Rosdistro, retry: bool, stage0: bool):
+def cli_rpmbuild(rosdistro: Rosdistro, arch: str, retry: bool, stage0: bool):
     if not Path("Earthfile").is_file():
         click.echo("error: please init first.", err=True)
         return
-    build_rpms(rosdistro, retry, stage0)
+    build_rpms(rosdistro, arch, retry, stage0)

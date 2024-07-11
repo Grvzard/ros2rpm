@@ -81,13 +81,26 @@ gen:
 
 
 oe-rpmbuild:
-    FROM openeuler/openeuler:24.03-lts
+    ARG arch
+    IF [ "$arch" == "arm64" ]
+        FROM --platform=linux/arm64 openeuler/openeuler:24.03-lts
+    ELSE IF [ "$arch" == "amd64" ]
+        FROM --platform=linux/amd64 openeuler/openeuler:24.03-lts
+    ELSE IF [ "$arch" == "riscv64" ]
+        FROM grvzard/oerv
+    ELSE
+        FROM openeuler/openeuler:24.03-lts
+    END
     RUN dnf install -y git gcc-g++ cmake make patch python3-devel python3-setuptools python3-pytest
     RUN dnf install -y rpmdevtools rpmlint dnf-plugins-core
     RUN dnf install -y createrepo
+    # pre-installs
+    # https://github.com/ros-industrial/ros2_canopen/pull/290
+    RUN dnf install -y python3-yaml
 
 
 rpm-build:
+    ARG arch
     FROM +oe-rpmbuild
     WORKDIR /root/rpmbuild
 
@@ -107,9 +120,9 @@ gpgcheck=0" > /etc/yum.repos.d/stage0.repo
 
     COPY --if-exists thirdparty/RPMS/ /tmp/thirdparty-repo/
     IF [ -d /tmp/thirdparty-repo/ ]
-        RUN echo "[thirdparty-repo]
-name=Thirdparty Repository
-baseurl=file:///tmp/thirdparty-repo/
+        RUN echo "[ros-thirdparty]
+name=ros-thirdparty
+baseurl=https://ros.sadsad.vip/openEuler-24.03-LTS/thirdparty/
 enabled=1
 gpgcheck=0" > /etc/yum.repos.d/thirdparty.repo
     END
@@ -144,6 +157,12 @@ gpgcheck=0" > /etc/yum.repos.d/local.repo
         SAVE ARTIFACT $dir/* AS LOCAL $dir/
     END
     SAVE ARTIFACT SRPMS/* AS LOCAL SRPMS/
+
+
+rpm-build-allplatform:
+    BUILD +rpm-build --arch=arm64
+    BUILD +rpm-build --arch=amd64
+    BUILD +rpm-build --arch=riscv64
 
 
 build-stage0-repo:

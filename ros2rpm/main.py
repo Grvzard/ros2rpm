@@ -200,8 +200,9 @@ def gen(rosdistro: Rosdistro, retry: bool):
         progress_fpath.write_text(yaml.safe_dump(progress))
 
 
-def build_rpms(rosdistro: Rosdistro, retry: bool = False, stage0: bool = False):
-    logs_dpath = Path(f"{LOGS_PATH}/build_rpms")
+def build_rpms(rosdistro: Rosdistro, arch: str, retry: bool = False, stage0: bool = False):
+    assert arch in ("arm64", "amd64", "riscv64")
+    logs_dpath = Path(f"{LOGS_PATH}/build_rpms-{arch}")
     logs_dpath.mkdir(parents=True, exist_ok=True)
 
     progress_fpath = logs_dpath / "_progress.yaml"
@@ -245,6 +246,7 @@ def build_rpms(rosdistro: Rosdistro, retry: bool = False, stage0: bool = False):
         ok, log = _earthly_build(
             "rpm-build",
             [
+                f"--arch={arch}",
                 f"--url={info['git']}",
                 f"--package={pkg_name}",
                 f"--version={info['branch'].split('/')[-1]}",
