@@ -1,7 +1,7 @@
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import httpx
 import networkx as nx
@@ -11,7 +11,7 @@ from catkin_pkg.package import Package
 from catkin_pkg.packages import parse_package_string
 from jinja2 import Environment, PackageLoader
 
-from ._const import BLUEPRINT_PATH, LOGS_PATH, PKGXML_CACHEDIR_PATH, Rosdistro
+from ._const import BLUEPRINT_PATH, LOGS_PATH, PKGXML_CACHE_DPATH, Rosdistro
 from .spec import SpecPayload
 
 logger = logging.getLogger(__name__)
@@ -41,13 +41,13 @@ def gen_spec(
     dst_path.write_text(templ.render(**asdict(spec)))
 
 
-def resolve_dist(dist_file: Union[Path, str], rosdistro: str, cache_dir: Optional[str]):
+def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
     """distribution.yaml -> blueprint-{rosdistro}.yaml"""
     if not isinstance(dist_file, Path):
         dist_fpath = Path(dist_file)
     else:
         dist_fpath = dist_file
-    cache_dpath = Path(cache_dir or PKGXML_CACHEDIR_PATH)
+    cache_dpath = PKGXML_CACHE_DPATH
     if not cache_dpath.exists():
         cache_dpath.mkdir(parents=True)
     assert cache_dpath.is_dir()

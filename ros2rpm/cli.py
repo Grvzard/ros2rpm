@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -40,9 +39,8 @@ def cli_spec(pkg_dir: str, dst_path: str, rosdistro: str, os: str, rpm_inc: int)
 @cli.command("resolve")
 @click.argument("dist_file")
 @click.option("--rosdistro", required=True, type=click.Choice(rosdistros))
-@click.option("--cache-dir", default=None)
-def cli_resolve(dist_file: str, rosdistro: Rosdistro, cache_dir: Optional[str]):
-    resolve_dist(Path(dist_file), rosdistro, cache_dir)
+def cli_resolve(dist_file: str, rosdistro: Rosdistro):
+    resolve_dist(Path(dist_file), rosdistro)
 
 
 @cli.command("init")
