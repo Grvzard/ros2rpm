@@ -30,7 +30,7 @@ def cli():
 @click.argument("pkg_dir")
 @click.argument("dst_path")
 @click.option("--rosdistro", required=True, type=click.Choice(rosdistros))
-@click.option("--os", required=True)
+@click.option("--os", required=True, help="OS_NAME:OS_VERSION")
 @click.option("--rpm-inc", default=0, type=int)
 def cli_spec(pkg_dir: str, dst_path: str, rosdistro: str, os: str, rpm_inc: int):
     gen_spec(Path(pkg_dir), Path(dst_path), rosdistro, os, rpm_inc)
