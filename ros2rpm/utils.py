@@ -3,4 +3,4 @@ def sanitize_pkgname(name: str) -> str:
 
 
 def rosify_pkgname(pkgname: str, rosdistro: str) -> str:
-    return f"ros-{rosdistro}-{pkgname}"
+    return f"ros-{rosdistro}-{sanitize_pkgname(pkgname)}"

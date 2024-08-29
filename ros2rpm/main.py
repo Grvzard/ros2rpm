@@ -1,4 +1,5 @@
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Union
@@ -11,10 +12,39 @@ from catkin_pkg.package import Package
 from catkin_pkg.packages import parse_package_string
 from jinja2 import Environment, PackageLoader
 
-from ._const import BLUEPRINT_PATH, LOGS_PATH, PKGXML_CACHE_DPATH, Rosdistro
+from ._const import BLUEPRINT_PATH, CACHE_DPATH, LOGS_PATH, PKGXML_CACHE_DPATH, Rosdistro
 from .spec import PkgDepends, SpecPayload
+from .utils import rosify_pkgname
 
 logger = logging.getLogger(__name__)
+
+
+class PkgxmlCache:
+    def __init__(self):
+        cache_dpath = PKGXML_CACHE_DPATH
+        if not cache_dpath.exists():
+            cache_dpath.mkdir(parents=True)
+        assert cache_dpath.is_dir()
+        self.cache_dpath = cache_dpath
+        self.http_client = httpx.Client(timeout=15.0, http2=True, http1=False)
+
+    def get(self, git_url, src_path):
+        raw_host = git_url.replace("github.com", "raw.githubusercontent.com").rstrip(".git")
+        xml_path = f"{src_path}/package.xml"
+        cache_file = self.cache_dpath / xml_path
+
+        if cache_file.exists():
+            xml_content = cache_file.read_text()
+            logger.info(f"cached: {raw_host}/{xml_path}")
+        else:
+            xml_url = f"{raw_host}/{xml_path}"
+            resp = self.http_client.get(xml_url)
+            if resp.status_code != 200:
+                raise RuntimeError(f"failed while fetching: {xml_url}")
+            xml_content = resp.text
+            cache_file.parent.mkdir(parents=True)
+            cache_file.write_text(xml_content)
+            logger.info(f"fetched: {raw_host}/{xml_path}")
 
 
 def gen_spec(
@@ -38,6 +68,7 @@ def gen_spec(
     templ = jenv.get_template(f"{pkg_typ}.spec")
 
     dst_path.touch(mode=0o666, exist_ok=True)
+    assert dst_path.is_file()
     dst_path.write_text(templ.render(**asdict(spec)))
 
 
@@ -47,12 +78,8 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
         dist_fpath = Path(dist_file)
     else:
         dist_fpath = dist_file
-    cache_dpath = PKGXML_CACHE_DPATH
-    if not cache_dpath.exists():
-        cache_dpath.mkdir(parents=True)
-    assert cache_dpath.is_dir()
+    cache = PkgxmlCache()
 
-    http_client = httpx.Client(timeout=15.0, http2=True, http1=False)
     pkg_infos = {}
     skipped_list = []
     pkg_run_deps: dict[str, list] = {}
@@ -77,26 +104,12 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
         )
 
         src_host = info["release"]["url"]
-        raw_host = src_host.replace("github.com", "raw.githubusercontent.com").rstrip(".git")
         version = info["release"]["version"]
         for pkg_name in pkgs:
             assert pkg_name not in pkg_infos.keys()
             src_path = f"release/{rosdistro}/{pkg_name}/{version}"
-            xml_path = f"{src_path}/package.xml"
 
-            cache_file = cache_dpath / xml_path
-            if cache_file.exists():
-                xml_content = cache_file.read_text()
-                logger.info(f"cached: {raw_host}/{xml_path}")
-            else:
-                xml_url = f"{raw_host}/{xml_path}"
-                resp = http_client.get(xml_url)
-                if resp.status_code != 200:
-                    raise RuntimeError(f"failed while fetching: {xml_url}")
-                xml_content = resp.text
-                cache_file.parent.mkdir(parents=True)
-                cache_file.write_text(xml_content)
-                logger.info(f"fetched: {raw_host}/{xml_path}")
+            xml_content = cache.get(src_host, src_path)
 
             pkg: Package = parse_package_string(xml_content)
             pkgdeps: PkgDepends = PkgDepends.from_pkg(pkg, rosdistro)
@@ -134,7 +147,7 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
             )
     # TODO: separate the graph data to a single file
     g = {"pkgs": pkg_infos, "graph": list(set(dep_graph_data))}
-    (cache_dpath / f"{rosdistro}-skipped.log").write_text(yaml.safe_dump(skipped_list))
+    (CACHE_DPATH / f"{rosdistro}-skipped.log").write_text(yaml.safe_dump(skipped_list))
     Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).write_text(yaml.safe_dump(g))
 
 
@@ -157,19 +170,31 @@ def gen(rosdistro: Rosdistro, retry: bool):
     bp = yaml.safe_load(Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).read_text())
     pkg_infos = bp["pkgs"]
 
+    cache = PkgxmlCache()
+
     for pkg_name, info in pkg_infos.items():
         logger.info(pkg_name)
         if pkg_name in progress["done"] or pkg_name in progress["failed"]:
             continue
         url = info["git"]
-        _, _, _, ver = info["branch"].split("/")
+        _, _, _, fullver = info["branch"].split("/")
+        # ensure cached
+        pkgxml_path = f"release/{rosdistro}/{pkg_name}/{fullver}"
+        _ = cache.get(url, pkgxml_path)
+        gen_spec(
+            cache.cache_dpath / pkgxml_path,
+            Path(f"SPECS/{rosify_pkgname(pkg_name)}.spec"),
+            rosdistro,
+            "openeuler:24.03",
+            re.sub(r"^.*?-", "", fullver),
+        )
 
         ok, log = _earthly_build(
-            "gen",
+            "gen-archive",
             [
                 f"--url={url}",
                 f"--package={pkg_name}",
-                f"--version={ver}",
+                f"--version={fullver}",
                 f"--rosdistro={rosdistro}",
                 "--os=openeuler:24.03",
             ],
@@ -202,18 +227,11 @@ def build_rpms(rosdistro: Rosdistro, arch: str, retry: bool = False, stage0: boo
         progress["failed"] = set()
 
     bp = yaml.safe_load(Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).read_text())
-    pkg_infos = bp["pkgs"]
 
     G = nx.DiGraph()
-    # TODO: support ros 1
-    if stage0:
-        G.add_edges_from(
-            (
-                ("ament_package", "ament_cmake_core"),
-                ("ament_package", "ros_workspace"),
-                ("ament_cmake_core", "ros_workspace"),
-            )
-        )
+    custom_graph = Path("graph.yaml")
+    if custom_graph.is_file():
+        G.add_edges_from(map(tuple, yaml.safe_load(custom_graph.read_text())["graph"]))
     else:
         G.add_edges_from(map(tuple, bp["graph"]))
     assert nx.is_directed_acyclic_graph(G)
@@ -228,17 +246,9 @@ def build_rpms(rosdistro: Rosdistro, arch: str, retry: bool = False, stage0: boo
             progress_fpath.write_text(yaml.safe_dump(progress))
             logger.info("SKIPPED")
             continue
-        info = pkg_infos[pkg_name]
+        ros_pkgname = rosify_pkgname(pkg_name)
         ok, log = _earthly_build(
-            "rpm-build",
-            [
-                f"--arch={arch}",
-                f"--url={info['git']}",
-                f"--package={pkg_name}",
-                f"--version={info['branch'].split('/')[-1]}",
-                f"--rosdistro={rosdistro}",
-                "--stage0=true" if stage0 else "--stage0=",
-            ],
+            "rpm-build", [f"--arch={arch}", f"--spec={ros_pkgname}", f"--rosdistro={rosdistro}"]
         )
         if ok:
             progress["done"].add(pkg_name)
@@ -249,10 +259,7 @@ def build_rpms(rosdistro: Rosdistro, arch: str, retry: bool = False, stage0: boo
             (logs_dpath / f"{pkg_name}.log").write_text(log)
             logger.info("FAILED")
         progress_fpath.write_text(yaml.safe_dump(progress))
-
-    if stage0:
-        ok, log = _earthly_build("build-stage0-repo", [f"--rosdistro={rosdistro}"])
-        assert ok, log
+    return
 
 
 # def log_parse(log: str):

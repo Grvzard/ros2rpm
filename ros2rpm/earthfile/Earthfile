@@ -4,18 +4,12 @@ FROM alpine:latest
 RUN apk add git tar
 
 
-self-cmdline:
-    FROM python:3.9
-    WORKDIR /app
-    CACHE /root/.cache/pip
+# self-cmdline:
+#     FROM python:3.9
+#     WORKDIR /app
+#     CACHE /root/.cache/pip
 
-    RUN pip install "rosdep-oe @ git+https://github.com/Grvzard/rosdep-oe@dev"
-    CACHE --persist /etc/ros/
-    RUN rosdep -q init || true
-    CACHE --persist /root/.ros/
-    RUN echo "Cache bust: 0" && rosdep update
-
-    RUN pip install "ros2rpm @ git+https://github.com/Grvzard/ros2rpm@main"
+#     RUN pip install "ros2rpm @ git+https://github.com/Grvzard/ros2rpm@main"
 
 
 clone-pkg:
@@ -26,58 +20,63 @@ clone-pkg:
     SAVE ARTIFACT /tmp/repo /repo
 
 
-gen-spec:
-    FROM +self-cmdline
-    WORKDIR /rpm-src
-    ARG --required url
-    ARG --required package
-    ARG --required version
-    ARG --required rosdistro
-    ARG --required os
+# gen-spec:
+#     FROM +self-cmdline
+#     WORKDIR /rpm-src
+#     ARG --required url
+#     ARG --required package
+#     ARG --required version
+#     ARG --required rosdistro
+#     ARG --required os
 
-    LET ros_pkgname = ros-$rosdistro-$(echo $package | sed 's/_/-/g')
-    LET rpm_inc = $(echo $version | sed 's/.*-//')
+#     LET ros_pkgname = ros-$rosdistro-$(echo $package | sed 's/_/-/g')
+#     LET rpm_inc = $(echo $version | sed 's/.*-//')
 
-    COPY (+clone-pkg/repo --url=$url --branch=release/$rosdistro/$package/$version) /tmp/repo
+#     COPY (+clone-pkg/repo --url=$url --branch=release/$rosdistro/$package/$version) /tmp/repo
 
-    RUN ros2rpm spec --rosdistro=$rosdistro --rpm-inc=$rpm_inc --os=$os /tmp/repo $ros_pkgname.spec
-    SAVE ARTIFACT $ros_pkgname.spec
+#     RUN ros2rpm spec --rosdistro=$rosdistro --rpm-inc=$rpm_inc --os=$os /tmp/repo $ros_pkgname.spec
+#     SAVE ARTIFACT $ros_pkgname.spec
 
 
 gen-archive:
     WORKDIR /gen-archive
     ARG --required url
-    ARG --required branch
-    ARG --required arcname_main
-
-    COPY +clone-pkg/repo $arcname_main
-    RUN tar -czf $arcname_main.tar.gz $arcname_main
-    SAVE ARTIFACT $arcname_main.tar.gz
-
-
-gen:
-    WORKDIR /gen
-    ARG --required url
+    ARG --required rosdistro
     ARG --required package
     ARG --required version
-    ARG --required rosdistro
-    ARG --required os
 
     LET version_main = $(echo $version | sed 's/-.*//')
     LET ros_pkgname = ros-$rosdistro-$(echo $package | sed 's/_/-/g')
     LET arcname_main = $ros_pkgname-$version_main
 
-    COPY --if-exists SOURCES/$arcname_main.tar.gz .
-    IF [ ! -f $arcname_main.tar.gz ]
-        COPY (+gen-archive/* --arcname_main=$arcname_main --branch=release/$rosdistro/$package/$version) .
-        SAVE ARTIFACT $arcname_main.tar.gz AS LOCAL SOURCES/
-    END
-    COPY --if-exists SOURCES/$ros_pkgname.spec .
-    IF [ ! -f $ros_pkgname.spec ]
-        COPY +gen-spec/$ros_pkgname.spec .
-        SAVE ARTIFACT $ros_pkgname.spec AS LOCAL SPECS/
-    END
-    SAVE ARTIFACT .
+    COPY (+clone-pkg/repo --branch=release/$rosdistro/$package/$version) $arcname_main
+    RUN tar -czf $arcname_main.tar.gz $arcname_main
+    SAVE ARTIFACT $arcname_main.tar.gz AS LOCAL SOURCES/
+
+
+# gen:
+#     WORKDIR /gen
+#     ARG --required url
+#     ARG --required package
+#     ARG --required version
+#     ARG --required rosdistro
+#     ARG --required os
+
+#     LET version_main = $(echo $version | sed 's/-.*//')
+#     LET ros_pkgname = ros-$rosdistro-$(echo $package | sed 's/_/-/g')
+#     LET arcname_main = $ros_pkgname-$version_main
+
+#     COPY --if-exists SOURCES/$arcname_main.tar.gz .
+#     IF [ ! -f $arcname_main.tar.gz ]
+#         COPY +gen-archive/* .
+#         SAVE ARTIFACT $arcname_main.tar.gz AS LOCAL SOURCES/
+#     END
+#     COPY --if-exists SOURCES/$ros_pkgname.spec .
+#     IF [ ! -f $ros_pkgname.spec ]
+#         COPY +gen-spec/$ros_pkgname.spec .
+#         SAVE ARTIFACT $ros_pkgname.spec AS LOCAL SPECS/
+#     END
+#     SAVE ARTIFACT .
 
 
 oe-rpmbuild:
@@ -106,52 +105,33 @@ rpm-build:
 
     ARG --required rosdistro
     ARG os = openeuler:24.03
-    ARG stage0
 
-    IF [ -z $stage0 ]
-        RUN echo "[stage0repo]
-name=Stage 0 Repository
-baseurl=file:///tmp/stage0-repo/
-enabled=1
-gpgcheck=0" > /etc/yum.repos.d/stage0.repo
-        COPY --if-exists stage0/ /tmp/stage0-repo/
-        RUN [ -d /tmp/stage0-repo ] && dnf install -y ros-$rosdistro-ros-workspace
-    END
+    # ENV PYTHONPATH=/opt/ros/$rosdistro/lib/python3.11/site-packages:$PYTHONPATH
+    RUN PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")') \
+        && export PYTHONPATH="/opt/ros/$rosdistro/lib/python${PYTHON_VERSION}/site-packages:$PYTHONPATH"
 
-    COPY --if-exists thirdparty/RPMS/ /tmp/thirdparty-repo/
-    IF [ -d /tmp/thirdparty-repo/ ]
-        RUN echo "[ros-thirdparty]
-name=ros-thirdparty
-baseurl=https://ros.sadsad.vip/openEuler-24.03-LTS/thirdparty/
-enabled=1
-gpgcheck=0" > /etc/yum.repos.d/thirdparty.repo
-    END
+    COPY --if-exists thirdparty.repo /etc/yum.repos.d/thirdparty.repo
 
-    RUN echo "[localrepo]
+    COPY --if-exists RPMS/ /tmp/local-repo/
+    IF [ -d /tmp/local-repo/ ]
+        RUN echo "[localrepo]
 name=Local Repository
 baseurl=file:///tmp/local-repo
 enabled=1
 gpgcheck=0" > /etc/yum.repos.d/local.repo
-    COPY RPMS/ /tmp/local-repo/
-    RUN createrepo --update /tmp/local-repo/
+        RUN createrepo --update /tmp/local-repo/
+    END
 
-    ARG --required url
-    ARG --required package
-    ARG --required version
+    ARG --required spec
 
-    LET version_main = $(echo $version | sed 's/-.*//')
-    LET ros_pkgname = ros-$rosdistro-$(echo $package | sed 's/_/-/g')
-    LET arcname_main = $ros_pkgname-$version_main
-
-    # TODO: specified by the OS
-    ENV PYTHONPATH=/opt/ros/$rosdistro/lib/python3.11/site-packages:$PYTHONPATH
     ENV CXX="g++ -Wno-error=deprecated-declarations -Wno-error=cpp"
-    COPY SPECS/$ros_pkgname.spec SPECS/
-    COPY SOURCES/$arcname_main.tar.gz SOURCES/
+    COPY SPECS/$spec.spec SPECS/
+    COPY SOURCES/ SOURCES/
 
-    RUN rpmlint SPECS/*
-    RUN dnf builddep -y SPECS/$ros_pkgname.spec
-    RUN rpmbuild -ba SPECS/$ros_pkgname.spec
+    RUN rpmlint SPECS/$spec.spec
+    # RUN 
+    RUN dnf builddep --define "ros_distro $rosdistro" -y SPECS/$spec.spec
+    RUN rpmbuild -ba --define "ros_distro $rosdistro" SPECS/$spec.spec
 
     FOR dir IN $(ls -d RPMS/*/)
         SAVE ARTIFACT $dir/* AS LOCAL $dir/
@@ -165,32 +145,32 @@ rpm-build-allplatform:
     BUILD +rpm-build --arch=riscv64
 
 
-build-stage0-repo:
-    FROM +oe-rpmbuild
-    WORKDIR /tmp/stage0-repo
-    ARG --required rosdistro
+# build-stage0-repo:
+#     FROM +oe-rpmbuild
+#     WORKDIR /tmp/stage0-repo
+#     ARG --required rosdistro
 
-    FOR pkgname IN "ament-package ament-cmake-core ros-workspace"
-        COPY RPMS/**/ros-$rosdistro-$pkgname*.rpm .
-    END
-    RUN createrepo --update .
+#     FOR pkgname IN "ament-package ament-cmake-core ros-workspace"
+#         COPY RPMS/**/ros-$rosdistro-$pkgname*.rpm .
+#     END
+#     RUN createrepo --update .
 
-    SAVE ARTIFACT ./* AS LOCAL stage0/
+#     SAVE ARTIFACT ./* AS LOCAL stage0/
 
 
-rpmbuild:
-    FROM +oe-rpmbuild
-    WORKDIR /root/rpmbuild
+# rpmbuild:
+#     FROM +oe-rpmbuild
+#     WORKDIR /root/rpmbuild
 
-    ARG builddir = .
-    COPY $builddir/SPECS/ SPECS/
-    COPY $builddir/SOURCES/ SOURCES/
-    RUN rpmlint SPECS/*
+#     ARG builddir = .
+#     COPY $builddir/SPECS/ SPECS/
+#     COPY $builddir/SOURCES/ SOURCES/
+#     RUN rpmlint SPECS/*
 
-    FOR file IN $(ls -d SPECS/*)
-        RUN dnf builddep -y $file
-        RUN rpmbuild -ba $file
-    END
-    RUN createrepo --update RPMS/
+#     FOR file IN $(ls -d SPECS/*)
+#         RUN dnf builddep -y $file
+#         RUN rpmbuild -ba $file
+#     END
+#     RUN createrepo --update RPMS/
 
-    SAVE ARTIFACT RPMS/* AS LOCAL $builddir/RPMS/
+#     SAVE ARTIFACT RPMS/* AS LOCAL $builddir/RPMS/

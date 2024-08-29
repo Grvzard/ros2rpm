@@ -1,4 +1,5 @@
 import os
+import subprocess
 import typing
 from pathlib import Path
 
@@ -62,7 +63,10 @@ def cli_init():
 def cli_gen(rosdistro: Rosdistro, retry: bool):
     if not Path("Earthfile").is_file():
         click.echo("error: please init first.", err=True)
-        return
+        exit(1)
+    if subprocess.run(["earthly", "-v"]).return_code != 0:
+        click.echo("error: earthly not found", err=True)
+        exit(1)
     gen(rosdistro, retry)
 
 
@@ -75,5 +79,8 @@ def cli_gen(rosdistro: Rosdistro, retry: bool):
 def cli_rpmbuild(rosdistro: Rosdistro, arch: str, retry: bool, stage0: bool):
     if not Path("Earthfile").is_file():
         click.echo("error: please init first.", err=True)
-        return
+        exit(1)
+    if subprocess.run(["earthly", "-v"]).return_code != 0:
+        click.echo("error: earthly not found")
+        exit(1)
     build_rpms(rosdistro, arch, retry, stage0)
