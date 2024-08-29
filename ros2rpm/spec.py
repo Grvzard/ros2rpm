@@ -1,12 +1,58 @@
+from __future__ import annotations
+
 import datetime
 from typing import Optional
 
 import attrs
-from catkin_pkg.package import Package
+from catkin_pkg.package import Dependency, Package
 
-from ._const import Rosdistro
+from ._const import ROS_VERSION_FAMILY, Rosdistro
 from .resolve import PkgResolver, ReleaseTriple
 from .utils import rosify_pkgname, sanitize_pkgname
+
+
+# un-rosified name
+@attrs.define
+class PkgDepends:
+    run_deps: set[Dependency]
+    build_deps: set[Dependency]
+    test_deps: set[Dependency]
+    replaces: set[Dependency]
+    conflicts: set[Dependency]
+
+    @staticmethod
+    def from_pkg(pkg: Package, rosdistro: Rosdistro) -> PkgDepends:
+        if pkg.package_format >= 3:
+            # based on https://github.com/ros/rosdistro/blob/master/index-v4.yaml
+            pkg.evaluate_conditions(
+                {
+                    "ROS_VERSION": ROS_VERSION_FAMILY[rosdistro],
+                    "ROS_DISTRO": rosdistro,
+                    "ROS_PYTHON_VERSION": "3",
+                }
+            )
+
+        run_deps = set(
+            dep
+            for dep in (pkg.run_depends + pkg.buildtool_export_depends)
+            if dep.evaluated_condition is not False
+        )
+        build_deps = set(
+            dep
+            for dep in (pkg.build_depends + pkg.buildtool_depends)
+            if dep.evaluated_condition is not False
+        )
+        test_dps = set(dep for dep in pkg.test_depends if dep.evaluated_condition is not False)
+        replaces = set(dep for dep in pkg.replaces if dep.evaluated_condition is not False)
+        conflicts = set(dep for dep in pkg.conflicts if dep.evaluated_condition is not False)
+
+        return PkgDepends(
+            run_deps=run_deps,
+            build_deps=build_deps,
+            test_deps=test_dps,
+            replaces=replaces,
+            conflicts=conflicts,
+        )
 
 
 @attrs.define
@@ -38,43 +84,38 @@ class SpecPayload:
     # license_files: list[str] = attrs.Factory(list)
     changelogs: list[Changelog] = attrs.Factory(list)
 
-    @classmethod
-    def from_pkg(cls, pkg: Package, rosdistro: Rosdistro, os: str, rpm_inc: int):
+    @staticmethod
+    def from_pkg(pkg: Package, rosdistro: Rosdistro, os: str, rpm_inc: int) -> SpecPayload:
         triple = ReleaseTriple(rosdistro, *os.split(":"))
         dep_resolver = PkgResolver(triple)
 
         if pkg.package_format >= 3:
             pkg.evaluate_conditions(
                 {
-                    # TODO support ros-1
-                    "ROS_VERSION": "2",
+                    "ROS_VERSION": ROS_VERSION_FAMILY[rosdistro],
                     "ROS_DISTRO": rosdistro,
+                    # TODO: support python2
                     "ROS_PYTHON_VERSION": "3",
                 }
             )
 
-        depends = dep_resolver.formatted_depnames(
-            dep
-            for dep in (pkg.run_depends + pkg.buildtool_export_depends)
-            if dep.evaluated_condition is not False
-        )
-        build_depends = dep_resolver.formatted_depnames(
-            dep
-            for dep in (pkg.build_depends + pkg.buildtool_depends)
-            if dep.evaluated_condition is not False
-        )
-        test_depends = dep_resolver.formatted_depnames(
-            dep for dep in pkg.test_depends if dep.evaluated_condition is not False
-        )
-        deps_replaces = dep_resolver.formatted_depnames(
-            dep for dep in pkg.replaces if dep.evaluated_condition is not False
-        )
-        deps_conflicts = dep_resolver.formatted_depnames(
-            dep for dep in pkg.conflicts if dep.evaluated_condition is not False
-        )
+        pkgdeps = PkgDepends.from_pkg(pkg, rosdistro)
 
-        pkgname = sanitize_pkgname(pkg.name)
-        ros_pkgname = rosify_pkgname(pkgname, rosdistro)
+        run_depends = dep_resolver.formatted_depnames(pkgdeps.run_deps)
+        build_depends = dep_resolver.formatted_depnames(pkgdeps.build_deps)
+        test_depends = dep_resolver.formatted_depnames(pkgdeps.test_deps)
+        deps_replaces = dep_resolver.formatted_depnames(pkgdeps.replaces)
+        deps_conflicts = dep_resolver.formatted_depnames(pkgdeps.conflicts)
+        if pkg.get_build_type() == "ament_python":
+            build_depends.append("python%{python3_pkgversion}-devel")
+        if ROS_VERSION_FAMILY[rosdistro] == "2" and pkg.name not in [
+            "ament_cmake_core",
+            "ament_package",
+            "ros_workspace",
+        ]:
+            run_depends.append(rosify_pkgname("ros-workspace", rosdistro))
+            build_depends.append(rosify_pkgname("ros-workspace", rosdistro))
+
         url_homepage = ""
         exported_tags = [e.tagname for e in pkg.exports]
         for url in pkg.urls:
@@ -84,29 +125,20 @@ class SpecPayload:
         full_ver = f"{pkg.version}-{rpm_inc}"
         mt = pkg.maintainers[0]
 
-        depends = set(depends)
-        build_depends = set(build_depends)
-        if pkg.name not in ["ament_cmake_core", "ament_package", "ros_workspace"]:
-            workspace_pkg_name = rosify_pkgname("ros-workspace", rosdistro)
-            depends.add(workspace_pkg_name)
-            build_depends.add(workspace_pkg_name)
-        if pkg.get_build_type() == "ament_python":
-            build_depends.add("python%{python3_pkgversion}-devel")
-
         return SpecPayload(
             installation_prefix=f"/opt/ros/{rosdistro}",
-            ros_pkgname=ros_pkgname,
+            ros_pkgname=rosify_pkgname(sanitize_pkgname(pkg.name), rosdistro),
             version=pkg.version,
             rpm_inc=rpm_inc,
             pkgname=pkg.name,
             license=" and ".join(pkg.licenses),
             homepage=url_homepage,
             no_arch="metapackage" in exported_tags or "architecture_independent" in exported_tags,
-            depends=sorted(depends),
+            depends=sorted(run_depends),
             build_depends=sorted(build_depends),
-            test_depends=sorted(set(test_depends)),
-            conflicts=sorted(set(deps_conflicts)),
-            replaces=sorted(set(deps_replaces)),
+            test_depends=sorted(test_depends),
+            conflicts=sorted(deps_conflicts),
+            replaces=sorted(deps_replaces),
             provides=[
                 f"%{{name}}-{subpackage} = %{{version}}-%{{release}}"
                 for subpackage in ("devel", "doc", "runtime")

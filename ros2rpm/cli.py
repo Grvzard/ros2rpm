@@ -1,4 +1,5 @@
 import os
+import typing
 from pathlib import Path
 
 import click
@@ -6,7 +7,7 @@ import click
 from ._const import Rosdistro
 from .main import build_rpms, gen, gen_spec, resolve_dist
 
-rosdistros: list[Rosdistro] = ["humble", "iron", "jazzy"]
+rosdistros: list[Rosdistro] = typing.get_args(Rosdistro)
 
 
 def with_earthly(func):

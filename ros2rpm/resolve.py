@@ -1,7 +1,8 @@
 from functools import lru_cache
-from typing import Iterable
+from typing import Iterable, Union
 
 import attrs
+from catkin_pkg.package import Dependency
 from rosdep2 import ResolutionError, create_default_installer_context
 from rosdep2.catkin_support import get_catkin_view
 
@@ -51,19 +52,24 @@ class PkgResolver:
                 + repr(e)
             )
 
-    def formatted_depnames(self, deps: Iterable):
+    def formatted_depnames(self, deps: Iterable[Union[Dependency, str]]):
         res = []
         for dep in deps:
-            # in most cases the length should be 1
-            for resolved_name in self.resolve_rosdep(dep.name):
-                version_deps = [k for k in self.VERSIONS.keys() if getattr(dep, k) is not None]
-                if not version_deps:
-                    res.append(resolved_name)
-                else:
-                    res.extend(
-                        [
-                            f"{resolved_name} {self.VERSIONS[v]} {getattr(dep, v)}"
-                            for v in version_deps
-                        ]
-                    )
+            if isinstance(dep, Dependency):
+                for resolved_name in self.resolve_rosdep(dep.name):
+                    version_deps = [
+                        k for k in self.VERSIONS.keys() if getattr(dep, k) is not None
+                    ]
+                    if not version_deps:
+                        res.append(resolved_name)
+                    else:
+                        res.extend(
+                            [
+                                f"{resolved_name} {self.VERSIONS[v]} {getattr(dep, v)}"
+                                for v in version_deps
+                            ]
+                        )
+            else:
+                res.extend(resolved_name for resolved_name in self.resolve_rosdep(dep.name))
+
         return res

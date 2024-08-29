@@ -12,7 +12,7 @@ from catkin_pkg.packages import parse_package_string
 from jinja2 import Environment, PackageLoader
 
 from ._const import BLUEPRINT_PATH, LOGS_PATH, PKGXML_CACHE_DPATH, Rosdistro
-from .spec import SpecPayload
+from .spec import PkgDepends, SpecPayload
 
 logger = logging.getLogger(__name__)
 
@@ -99,33 +99,17 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
                 logger.info(f"fetched: {raw_host}/{xml_path}")
 
             pkg: Package = parse_package_string(xml_content)
-            if pkg.package_format >= 3:
-                pkg.evaluate_conditions(
-                    {
-                        # TODO support ros-1
-                        "ROS_VERSION": "2",
-                        "ROS_DISTRO": rosdistro,
-                        "ROS_PYTHON_VERSION": "3",
-                    }
-                )
+            pkgdeps: PkgDepends = PkgDepends.from_pkg(pkg, rosdistro)
 
-            pkg_build_deps[pkg_name] = [
-                dep.name
-                for dep in (pkg.build_depends + pkg.buildtool_depends + pkg.test_depends)
-                if dep.evaluated_condition is not False
-            ]
-            pkg_run_deps[pkg_name] = [
-                dep.name
-                for dep in (pkg.run_depends + pkg.buildtool_export_depends)
-                if dep.evaluated_condition is not False
-            ]
-            if pkg_name not in ("ament_package", "ament_cmake_core", "ros_workspace"):
-                pkg_build_deps[pkg_name].append("ros_workspace")
-                pkg_run_deps[pkg_name].append("ros_workspace")
+            pkg_run_deps[pkg_name] = list(map(lambda d: d.name, pkgdeps.run_deps))
+            pkg_build_deps[pkg_name] = list(
+                map(lambda d: d.name, pkgdeps.build_deps.union(pkgdeps.test_deps))
+            )
             pkg_infos[pkg_name] = {
                 "git": src_host,
                 "branch": src_path,
                 "rundeps": None,  # fill later
+                "builddeps": None,  # fill later
             }
             logger.info(f"resolved: {pkg_name}")
 
@@ -148,6 +132,7 @@ def resolve_dist(dist_file: Union[Path, str], rosdistro: str):
             dep_graph_data.extend(
                 (rundep_name, pkg_name) for rundep_name in pkg_run_deps[builddep_name]
             )
+    # TODO: separate the graph data to a single file
     g = {"pkgs": pkg_infos, "graph": list(set(dep_graph_data))}
     (cache_dpath / f"{rosdistro}-skipped.log").write_text(yaml.safe_dump(skipped_list))
     Path(BLUEPRINT_PATH.format(rosdistro=rosdistro)).write_text(yaml.safe_dump(g))
@@ -220,6 +205,7 @@ def build_rpms(rosdistro: Rosdistro, arch: str, retry: bool = False, stage0: boo
     pkg_infos = bp["pkgs"]
 
     G = nx.DiGraph()
+    # TODO: support ros 1
     if stage0:
         G.add_edges_from(
             (
